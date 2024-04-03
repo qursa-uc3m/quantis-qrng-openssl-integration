@@ -15,13 +15,22 @@ if(DEBUG)
     add_definitions(-DDEBUG)
 endif()
 
-option(XOR_RANDOM "Enable XOR Random functionality" ON)
+option(XOR_RANDOM "Enable XOR Random functionality" ON) # Default is ON
 
 if(XOR_RANDOM)
     message(STATUS "XOR Random functionality enabled")
     add_definitions(-DXOR_RANDOM)
 else()
     message(STATUS "XOR Random functionality disabled")
+endif()
+
+option(MEASURE_RNG "Enable registration of RNG" OFF) # Default is OFF
+
+if (MEASURE_RNG)
+    message(STATUS "RNG registration enabled")
+    add_definitions(-DMEASURE_RNG)
+else()
+    message(STATUS "RNG registration disabled")
 endif()
 
 set(DEVICE_TYPE "USB" CACHE STRING "Select the device type (USB or PCIE)")
@@ -80,7 +89,15 @@ else()
 endif()
 
 add_library(${TARGET} SHARED quantis_qrng_provider.c quantis_qrng_provider_rand.c)
-target_link_libraries(${TARGET} PRIVATE OpenSSL::Crypto ${QUANTIS_LIBRARY})
+
+set(LINK_LIBS OpenSSL::Crypto ${QUANTIS_LIBRARY})
+
+if (MEASURE_RNG)
+    list(APPEND LINK_LIBS rt)
+endif()
+
+target_link_libraries(${TARGET} PRIVATE ${LINK_LIBS})
+
 install(TARGETS ${TARGET} LIBRARY DESTINATION lib)
 
 set(CPACK_PACKAGE_VENDOR "QURSA project, Telematics Engineering Department, GAST Group, UC3M")

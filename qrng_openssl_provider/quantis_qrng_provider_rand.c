@@ -14,6 +14,16 @@
 #include <unistd.h>
 #endif
 
+#ifdef MEASURE_RNG
+// SHARED MEMORY
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#define SHARED_MEM_NAME "/random_numbers_shm"
+#endif
+
 /* Quantis QRNG hardware device parameters:*/
 #ifdef DEVICE_USB
     QuantisDeviceType deviceType = QUANTIS_DEVICE_USB;
@@ -78,6 +88,48 @@ quantis_rand_freectx(void *vctx)
     }
     OPENSSL_clear_free(ctx, sizeof(QUANTIS_RAND_CTX));
 }
+
+#ifdef MEASURE_RNG
+int measure_random_numbers(size_t outlen) {
+    int shm_fd;
+    size_t *counter;
+
+    shm_fd = shm_open(SHARED_MEM_NAME, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+    if (shm_fd == -1) {
+        perror("shm_open");
+        return 0;
+    }
+
+    if (ftruncate(shm_fd, sizeof(size_t)) == -1) {
+        perror("ftruncate");
+        close(shm_fd);
+        return 0;
+    }
+
+    counter = mmap(NULL, sizeof(size_t), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+    if (counter == MAP_FAILED) {
+        perror("mmap");
+        close(shm_fd);
+        return 0;
+    }
+
+    if (*counter == 0) {
+        *counter = outlen;
+    } else {
+        *counter += outlen;
+    }
+
+    if (munmap(counter, sizeof(size_t)) == -1) {
+        perror("munmap");
+        close(shm_fd);
+        return 0;
+    }
+
+    close(shm_fd);
+
+    return 1;
+}
+#endif
 
 static int fallback_rand_bytes(unsigned char *out, int count) {
     ssize_t n = getrandom(out, count, 0);
@@ -154,6 +206,14 @@ static int quantis_rand_generate(void *vctx, unsigned char *out, size_t outlen,
                                  unsigned int strength, int prediction_resistance,
                                  const unsigned char *adin, size_t adinlen)
 {
+
+    #ifdef MEASURE_RNG
+        if (!measure_random_numbers(outlen)) {
+            printf("Error: Failed to measure random numbers\n");
+            return 0;
+        }
+    #endif
+
     #ifdef XOR_RANDOM
         unsigned char *temp_out = OPENSSL_malloc(outlen);
         if (temp_out == NULL)
