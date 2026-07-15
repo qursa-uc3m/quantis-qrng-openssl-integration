@@ -1,125 +1,118 @@
-# Quantis QRNG OpenSSL Integration
+# Quantis QRNG OpenSSL provider
 
-This repository contains the implementation of an OpenSSL provider that integrates *Quantis* quantum random number generators (QRNGs) into OpenSSL for random number generation. It provides an alternative to the default random number generation in OpenSSL, using the hardware-based quantum entropy source from the Quantis QRNG devices.
+This project exposes an ID Quantique Quantis device as an OpenSSL 3.x/4.x
+random provider. It supports the Quantis USB-4M and PCIe-240M through either
+the Quantis library or `/dev/qrandomN`.
 
-## Supported Devices
+The provider offers the name `QUANTIS-QRNG`. The historical `CTR-DRBG` alias is
+deprecated because this provider is not a CTR deterministic random bit
+generator. It remains available for compatibility with versions through 0.2.0
+and because the `openssl rand` command fetches an implementation with that
+name. New code that fetches this provider directly should request
+`QUANTIS-QRNG`.
 
-The provider has been tested with the following Quantis QRNG devices:
+## Security behavior
 
-- *Quantis PCIe-240M*
-- *Quantis USB-4M*
+By default, unavailable Quantis hardware falls back to the operating system's
+`getrandom()` source. This preserves the behavior of earlier releases, but it
+means successful output does **not** prove that bytes came from the QRNG. Build
+with `-DALLOW_OS_FALLBACK=OFF` when applications must fail closed if the Quantis
+source is unavailable.
 
-As of now, the provider does not support entropy extraction through the Quantis libraries. This is not necessary for the PCIe-240M QRNG, since it has integrated hardware entropy extraction. However, software-based entropy extraction might be a valuable addition for the USB-4M QRNG.
+`XOR_RANDOM=ON` (the default) combines successful Quantis output with
+`getrandom()`. If the device is unavailable and fallback is allowed, output is
+read once from `getrandom()`.
 
-## Prerequisites
+## Build
 
-Before installing the provider, ensure you have the Quantis QRNG devices and/or drivers properly installed on your system, and that the Quantis library paths are included in `LD_LIBRARY_PATH`. For installation instructions and more details, visit [Quantis Software](https://www.idquantique.com/random-number-generation/products/quantis-software/).
-
-## Installation
-
-Build with
-
-```console
-cmake -DDEVICE_TYPE=<USB/PCIE> -DQUANTIS_LIB=<YES/NO> -DDEVICE_NUMBER=<number> [-DOPENSSL_ROOT_DIR=<openssl_3.0_dir>] [-DDEBUG=<ON/OFF>] [-DXOR_RANDOM=<ON/OFF>]
-```
-
-Parameter Breakdown:
-
-- `-DDEVICE_TYPE`: Specifies the type of Quantis device you are using. Can be either USB for *Quantis USB-4M* or PCIE for *Quantis PCIe-240M*. The default is USB.
-- `-DDEVICE_NUMBER`: Identifies the device number if you have multiple devices. It should be set to the corresponding device number, with a default of 0.
-- `-DQUANTIS_LIB`: Determines whether to use the Quantis library (YES) or the device directly via `/dev/qrandom{DEVICE_NUMBER}` (NO). The default is YES.
-- `-DQUANTIS_LIB_DIR`: Specifies the filesystem path to the Quantis library directory. This is necessary for the build process to locate and link the Quantis library for QRNG functionality. If you have installed the Quantis libraries in a custom directory, provide that path using this option. The default path is set to `/opt/quantis/Libs-Apps`. If your libraries are located in a different directory, you need to set this path accordingly. If not set, the build process will use the default path.
-- `-DOPENSSL_ROOT_DIR`: (Optional) Sets the path to the OpenSSL 3.0 installation directory. If not provided, cmake will attempt to use the version of OpenSSL installed on the system.
-- `-DDEBUG`: (Optional) Turns on (ON) or off (OFF) debugging features. The default is OFF.
-- `-DXOR_RANDOM`: (Optional) Controls whether the output of the QRNG should be XORed with the output from `getrandom()`. This can be set to ON or OFF, with a default of ON.
-
-For example:
+The direct-device build does not require the Quantis SDK:
 
 ```console
-mkdir build
-cd build
-cmake -DDEVICE_TYPE=PCIE -DQUANTIS_LIB=NO -DOPENSSL_ROOT_DIR=<openssl_root_dir> ..
-make
+cmake -S qrng_openssl_provider -B build \
+  -DQUANTIS_LIB=NO \
+  -DDEVICE_NUMBER=0 \
+  -DOPENSSL_ROOT_DIR=/path/to/openssl
+cmake --build build
+ctest --test-dir build --output-on-failure
 ```
 
-Deploy the provider library:
+For the Quantis library backend:
 
 ```console
-sudo mkdir -p /opt/quantis/providers/
-sudo cp libcustom_qrng_provider.so /opt/quantis/providers/
+cmake -S qrng_openssl_provider -B build \
+  -DQUANTIS_LIB=YES \
+  -DQUANTIS_LIB_DIR=/opt/quantis/Libs-Apps \
+  -DDEVICE_TYPE=PCIE \
+  -DDEVICE_NUMBER=0
 ```
 
-Verify provider loading:
+Options:
+
+- `QUANTIS_LIB=YES|NO`: use the SDK or `/dev/qrandomN` (default `NO`).
+- `DEVICE_TYPE=USB|PCIE`: SDK device type (default `USB`).
+- `DEVICE_NUMBER=N`: zero-based device number (default `0`).
+- `QUANTIS_DEVICE_PATTERN=/dev/qrandom%d`: direct-device path pattern.
+- `XOR_RANDOM=ON|OFF`: combine Quantis and OS randomness (default `ON`).
+- `ALLOW_OS_FALLBACK=ON|OFF`: allow OS randomness when Quantis fails
+  (default `ON` for backward compatibility).
+- `MEASURE_RNG=ON|OFF`: count generated bytes in
+  `/dev/shm/random_numbers_shm` (default `OFF`).
+
+The requested OpenSSL installation must provide both headers and `libcrypto`.
+When it is outside the normal search paths, set `OPENSSL_ROOT_DIR`; at runtime,
+also make its shared libraries discoverable according to that installation's
+instructions.
+
+## Install and use
 
 ```console
-openssl list -providers -verbose -provider-path <provider-lib-dir> -provider <provider_name>
+cmake --install build --prefix /opt/quantis/providers
+openssl list -providers -verbose \
+  -provider-path /opt/quantis/providers/lib \
+  -provider libcustom_qrng_provider
+openssl rand -hex 32 \
+  -provider-path /opt/quantis/providers/lib \
+  -provider libcustom_qrng_provider
 ```
 
-For instance:
+The sample [`config/openssl.cnf`](config/openssl.cnf) shows how to activate the
+provider while retaining OpenSSL's default provider.
+
+## Tests
+
+The CTest integration test loads and unloads the provider, fetches the new RAND
+name and the deprecated compatibility alias, checks the advertised
+state/strength/request parameters, generates bytes with disconnected hardware,
+and confirms that an uninstantiated RAND cannot generate. It runs without the
+Quantis SDK or device.
+
+The following versions were tested locally:
+
+- OpenSSL 3.5.5: passed the provider integration test.
+- OpenSSL 3.6.3: passed the provider integration test and `openssl rand`.
+- OpenSSL 4.0.1: passed the provider integration test and installed-provider
+  `openssl rand`.
+
+The CI matrix is configured to build and test OpenSSL 3.5.7, 3.6.3, and 4.0.1.
+
+Test the strict policy separately with:
 
 ```console
-openssl list -providers -verbose -provider-path /opt/quantis/providers/ -provider libcustom_qrng_provider
+cmake -S qrng_openssl_provider -B build-strict \
+  -DQUANTIS_LIB=NO -DALLOW_OS_FALLBACK=OFF
+cmake --build build-strict
+ctest --test-dir build-strict --output-on-failure
 ```
 
-*Note*: If using a custom installation, don't forget to add the custom OpenSSL 3.* path to the `~/.bashrc` file, for example:
+Hardware-in-the-loop testing remains necessary before release: run the same
+test/build with the device connected, then verify throughput, disconnect
+behavior, and the `QUANTIS_LIB=YES` backend against the installed SDK.
 
-```text
-## OQS OPENSSL3 -liboqs PROVIDER-
-export LD_LIBRARY_PATH="<openssl_lib_path>:$LD_LIBRARY_PATH"
-```
+## Supported devices
 
-## Testing
+- Quantis PCIe-240M
+- Quantis USB-4M
 
-Generate random bytes:
-
-```console
-openssl rand -provider-path <provider-lib-dir> -provider <provider_name> -base64 32
-```
-
-For example:
-
-```console
-openssl rand -provider-path /opt/quantis/providers/ -provider libcustom_qrng_provider -base64 32
-```
-
-## Adding the Provider to `openssl.cnf`
-
-The provider can be added to the OpenSSL `openssl.cnf`. Check the location of the OpenSSL `openssl.cnf` configuration file with
-
-```console
-openssl version -d
-```
-
-We have included a sample configuration file in the `config` directory for illustration purposes.
-
-## Measuring bytes generated by the QRNG
-
-Build the provider with the option `-DMEASURE_RNG=ON`, for example
-
-```console
-cmake -DDEVICE_TYPE=PCIE -DQUANTIS_LIB=NO -DOPENSSL_ROOT_DIR=<openssl_root_dir> -DMEASURE_RNG=ON ..
-```
-
-Call some random number generation functions, for example
-
-```console
-openssl rand -provider-path /opt/quantis/providers/ -provider libcustom_qrng_provider -base64 32
-```
-
-Next, navigate to the `read_shm` folder and compile the reader with the following command:
-
-```console
-gcc -o read_shm read_shm.c -lrt
-```
-
-You can then check the generated random numbers by running:
-
-```console
-./read_shm
-```
-
-If you want to delete the shared memory file, use the following command:
-
-```console
-rm /dev/shm/random_numbers_shm
-```
+The provider does not perform software entropy extraction. That is appropriate
+for the PCIe-240M's integrated hardware extraction; USB-4M deployments that need
+extraction should add and validate it before relying on raw device output.

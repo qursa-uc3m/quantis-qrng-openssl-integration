@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  openssl-compatibility:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        openssl: ["3.5.7", "3.6.3", "4.0.1"]
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Build OpenSSL ${{ matrix.openssl }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          curl --fail --location --remote-name \
+            "https://github.com/openssl/openssl/releases/download/openssl-${{ matrix.openssl }}/openssl-${{ matrix.openssl }}.tar.gz"
+          curl --fail --location --remote-name \
+            "https://github.com/openssl/openssl/releases/download/openssl-${{ matrix.openssl }}/openssl-${{ matrix.openssl }}.tar.gz.sha256"
+          sha256sum --check "openssl-${{ matrix.openssl }}.tar.gz.sha256"
+          tar -xzf "openssl-${{ matrix.openssl }}.tar.gz"
+          cd "openssl-${{ matrix.openssl }}"
+          ./Configure \
+            --prefix="${{ runner.temp }}/openssl-install" \
+            --libdir=lib shared no-tests no-docs
+          make -j2 build_sw
+          make install_sw
+
+      - name: Configure provider
+        run: |
+          cmake -S qrng_openssl_provider -B build \
+            -DOPENSSL_ROOT_DIR="${{ runner.temp }}/openssl-install" \
+            -DQUANTIS_LIB=NO \
+            -DBUILD_TESTING=ON \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+      - name: Build provider
+        run: cmake --build build --parallel 2
+
+      - name: Test disconnected-device fallback
+        run: |
+          ctest --test-dir build --output-on-failure
+          env \
+            LD_LIBRARY_PATH="${{ runner.temp }}/openssl-install/lib" \
+            OPENSSL_MODULES="$PWD/build" \
+            "${{ runner.temp }}/openssl-install/bin/openssl" rand \
+              -provider libcustom_qrng_provider -hex 32
+
+      - name: Test fail-closed build
+        run: |
+          cmake -S qrng_openssl_provider -B build-strict \
+            -DOPENSSL_ROOT_DIR="${{ runner.temp }}/openssl-install" \
+            -DQUANTIS_LIB=NO \
+            -DQUANTIS_DEVICE_PATTERN="${{ runner.temp }}/missing-qrandom%d" \
+            -DALLOW_OS_FALLBACK=OFF \
+            -DBUILD_TESTING=ON
+          cmake --build build-strict --parallel 2
+          ctest --test-dir build-strict --output-on-failure
+          if env \
+            LD_LIBRARY_PATH="${{ runner.temp }}/openssl-install/lib" \
+            OPENSSL_MODULES="$PWD/build-strict" \
+            "${{ runner.temp }}/openssl-install/bin/openssl" rand \
+              -provider libcustom_qrng_provider -hex 32; then
+            echo "strict provider unexpectedly generated without a device"
+            exit 1
+          fi

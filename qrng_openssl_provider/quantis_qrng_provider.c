@@ -1,21 +1,10 @@
 #include <openssl/core_dispatch.h>
 #include <openssl/core_names.h>
-#include <openssl/rand.h>
-#include <openssl/provider.h>
 #include "quantis_qrng_provider_rand.h"
-
-#if defined(__unix__) || defined(__APPLE__)
-#include <unistd.h>
-#endif
 
 #define QUANTIS_PROV_NAME "Quantis QRNG Provider"
 #define QUANTIS_PROV_VERSION QUANTIS_PROV_PKG_VERSION
 #define QUANTIS_PROV_BUILD_INFO "Quantis QRNG Provider v." QUANTIS_PROV_PKG_VERSION
-
-static const OSSL_PARAM known_gettable_ctx_params[] = {
-    OSSL_PARAM_size_t(OSSL_RAND_PARAM_MAX_REQUEST, NULL),
-    OSSL_PARAM_END
-};
 
 static const OSSL_PARAM *quantis_gettable_params(void *provctx)
 {
@@ -27,12 +16,15 @@ static const OSSL_PARAM *quantis_gettable_params(void *provctx)
         OSSL_PARAM_END
     };
 
+    (void)provctx;
     return param_types;
 }
 
 static int quantis_get_params(void *provctx, OSSL_PARAM params[])
 {
     OSSL_PARAM *p;
+
+    (void)provctx;
 
     p = OSSL_PARAM_locate(params, OSSL_PROV_PARAM_NAME);
     if (p != NULL && !OSSL_PARAM_set_utf8_ptr(p, QUANTIS_PROV_NAME))
@@ -53,19 +45,24 @@ static int quantis_get_params(void *provctx, OSSL_PARAM params[])
 static void
 quantis_qrng_teardown(void *provctx)
 {
-    QUANTIS_RAND_CTX *ctx = provctx;
-
-    OPENSSL_clear_free(ctx, sizeof(QUANTIS_RAND_CTX));
+    (void)provctx;
+    /* No provider-wide context is allocated. */
 }
 
 static const OSSL_ALGORITHM quantis_rand_algorithm[] = {
-    { "CTR-DRBG", NULL, quantis_rand_functions },
-    { NULL, NULL, NULL }
+    /* Deprecated, but required for openssl rand and <= 0.2.0 compatibility. */
+    { "QUANTIS-QRNG:CTR-DRBG", NULL,
+        quantis_rand_functions, "Quantis hardware random number generator" },
+    { NULL, NULL, NULL, NULL }
 };
 
-static const OSSL_ALGORITHM *quantis_operation_query(OSSL_PROVIDER *prov, int operation_id, int *no_cache)
+static const OSSL_ALGORITHM *quantis_operation_query(void *provctx,
+    int operation_id,
+    int *no_cache)
 {
-    *no_cache = 0;
+    (void)provctx;
+    if (no_cache != NULL)
+        *no_cache = 0;
 
     switch (operation_id) {
     case OSSL_OP_RAND:
@@ -73,7 +70,6 @@ static const OSSL_ALGORITHM *quantis_operation_query(OSSL_PROVIDER *prov, int op
     default:
         return NULL;
     }
-    return NULL;
 }
 
 static const OSSL_DISPATCH quantis_provider_dispatch_table[] = {
@@ -87,7 +83,13 @@ static const OSSL_DISPATCH quantis_provider_dispatch_table[] = {
 int __attribute__((visibility("default")))
 OSSL_provider_init(const OSSL_CORE_HANDLE *handle, const OSSL_DISPATCH *in, const OSSL_DISPATCH **out, void **provctx)
 {
+    (void)handle;
+    (void)in;
+    if (out == NULL || provctx == NULL)
+        return 0;
+
     *out = quantis_provider_dispatch_table;
+    *provctx = NULL;
 
     return 1;
 }
