@@ -1,7 +1,6 @@
 #ifndef QUANTIS_QRNG_H
 #define QUANTIS_QRNG_H
 
-
 #if defined(__unix__) || defined(__APPLE__)
 #include <unistd.h>
 #endif

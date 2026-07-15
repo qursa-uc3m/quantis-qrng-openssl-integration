@@ -6,7 +6,7 @@
 typedef struct quantis_rand_ctx_st {
     CRYPTO_RWLOCK *lock;
     int state;
-    char* device;
+    char *device;
 } QUANTIS_RAND_CTX;
 
 extern const OSSL_DISPATCH quantis_rand_functions[];

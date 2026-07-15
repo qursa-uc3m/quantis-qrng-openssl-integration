@@ -1,0 +1,8 @@
+---
+# OpenSSL uses WebKit formatting with right-aligned pointers.
+BasedOnStyle: WebKit
+PointerAlignment: Right
+CommentPragmas: '(^ IWYU pragma:|^\*$|^-$)'
+SortIncludes: Never
+IncludeBlocks: Preserve
+...

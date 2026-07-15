@@ -67,27 +67,27 @@ static const OSSL_ALGORITHM *quantis_operation_query(OSSL_PROVIDER *prov, int op
 {
     *no_cache = 0;
 
-    switch(operation_id) {
-        case OSSL_OP_RAND:
-            return quantis_rand_algorithm;
-        default:
-            return NULL;
+    switch (operation_id) {
+    case OSSL_OP_RAND:
+        return quantis_rand_algorithm;
+    default:
+        return NULL;
     }
     return NULL;
 }
 
 static const OSSL_DISPATCH quantis_provider_dispatch_table[] = {
-    { OSSL_FUNC_PROVIDER_QUERY_OPERATION, (void(*)(void))quantis_operation_query },
-    { OSSL_FUNC_PROVIDER_GETTABLE_PARAMS, (void(*)(void))quantis_gettable_params },
-    { OSSL_FUNC_PROVIDER_GET_PARAMS, (void(*)(void))quantis_get_params },
+    { OSSL_FUNC_PROVIDER_QUERY_OPERATION, (void (*)(void))quantis_operation_query },
+    { OSSL_FUNC_PROVIDER_GETTABLE_PARAMS, (void (*)(void))quantis_gettable_params },
+    { OSSL_FUNC_PROVIDER_GET_PARAMS, (void (*)(void))quantis_get_params },
     { OSSL_FUNC_PROVIDER_TEARDOWN, (void (*)(void))quantis_qrng_teardown },
     { 0, NULL }
 };
 
-int __attribute__((visibility("default"))) 
+int __attribute__((visibility("default")))
 OSSL_provider_init(const OSSL_CORE_HANDLE *handle, const OSSL_DISPATCH *in, const OSSL_DISPATCH **out, void **provctx)
 {
     *out = quantis_provider_dispatch_table;
-    
+
     return 1;
 }
