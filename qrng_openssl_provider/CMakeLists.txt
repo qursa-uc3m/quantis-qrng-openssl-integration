@@ -34,8 +34,16 @@ endif()
 if(NOT DEVICE_NUMBER MATCHES "^[0-9]+$")
     message(FATAL_ERROR "DEVICE_NUMBER must be a non-negative integer")
 endif()
-if(NOT QUANTIS_DEVICE_PATTERN MATCHES "%d")
-    message(FATAL_ERROR "QUANTIS_DEVICE_PATTERN must contain %d")
+string(REGEX MATCHALL "%d" QUANTIS_DEVICE_CONVERSIONS
+    "${QUANTIS_DEVICE_PATTERN}")
+list(LENGTH QUANTIS_DEVICE_CONVERSIONS QUANTIS_DEVICE_CONVERSION_COUNT)
+string(REPLACE "%d" "" QUANTIS_DEVICE_PATTERN_LITERAL
+    "${QUANTIS_DEVICE_PATTERN}")
+if(NOT QUANTIS_DEVICE_CONVERSION_COUNT EQUAL 1
+        OR QUANTIS_DEVICE_PATTERN_LITERAL MATCHES "%"
+        OR NOT QUANTIS_DEVICE_PATTERN_LITERAL MATCHES "^[A-Za-z0-9_./-]*$")
+    message(FATAL_ERROR
+        "QUANTIS_DEVICE_PATTERN must be a safe path containing exactly one %d")
 endif()
 
 find_package(OpenSSL 3.0 REQUIRED COMPONENTS Crypto)
@@ -104,6 +112,9 @@ if(BUILD_TESTING)
     if(ALLOW_OS_FALLBACK)
         target_compile_definitions(provider_integration_test PRIVATE
             EXPECT_GENERATE_SUCCESS)
+    elseif(QUANTIS_LIB STREQUAL "NO")
+        target_compile_definitions(provider_integration_test PRIVATE
+            EXPECT_INSTANTIATE_FAILURE)
     endif()
     target_compile_options(provider_integration_test PRIVATE
         $<$<C_COMPILER_ID:GNU,Clang>:-Wall;-Wextra;-Wpedantic;-Wconversion>

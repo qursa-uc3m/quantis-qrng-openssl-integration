@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        openssl: ["3.5.7", "3.6.3", "4.0.1"]
+        openssl: ["3.5.5", "3.6.3", "4.0.1"]
 
     steps:
       - name: Check out source
@@ -46,30 +46,31 @@ jobs:
       - name: Build provider
         run: cmake --build build --parallel 2
 
-      - name: Test disconnected-device fallback
+      - name: Test fallback and default-provider coexistence
         run: |
           ctest --test-dir build --output-on-failure
           env \
             LD_LIBRARY_PATH="${{ runner.temp }}/openssl-install/lib" \
-            OPENSSL_MODULES="$PWD/build" \
+            "${{ runner.temp }}/openssl-install/bin/openssl" list \
+              -provider-path "$PWD/build" \
+              -provider libcustom_qrng_provider \
+              -random-generators
+          env \
+            LD_LIBRARY_PATH="${{ runner.temp }}/openssl-install/lib" \
             "${{ runner.temp }}/openssl-install/bin/openssl" rand \
-              -provider libcustom_qrng_provider -hex 32
+              -provider-path "$PWD/build" \
+              -provider libcustom_qrng_provider \
+              -provider default \
+              -hex 32
 
       - name: Test fail-closed build
         run: |
+          touch "${{ runner.temp }}/regular-qrandom0"
           cmake -S qrng_openssl_provider -B build-strict \
             -DOPENSSL_ROOT_DIR="${{ runner.temp }}/openssl-install" \
             -DQUANTIS_LIB=NO \
-            -DQUANTIS_DEVICE_PATTERN="${{ runner.temp }}/missing-qrandom%d" \
+            -DQUANTIS_DEVICE_PATTERN="${{ runner.temp }}/regular-qrandom%d" \
             -DALLOW_OS_FALLBACK=OFF \
             -DBUILD_TESTING=ON
           cmake --build build-strict --parallel 2
           ctest --test-dir build-strict --output-on-failure
-          if env \
-            LD_LIBRARY_PATH="${{ runner.temp }}/openssl-install/lib" \
-            OPENSSL_MODULES="$PWD/build-strict" \
-            "${{ runner.temp }}/openssl-install/bin/openssl" rand \
-              -provider libcustom_qrng_provider -hex 32; then
-            echo "strict provider unexpectedly generated without a device"
-            exit 1
-          fi
